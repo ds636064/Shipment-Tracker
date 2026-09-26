@@ -134,7 +134,8 @@ let dateStr = new Date().toISOString().slice(0,10);
 const $=id=>document.getElementById(id);
 $('dateInput').value = dateStr;
 
-function getSheetUrl(){ return localStorage.getItem('sheetWebAppUrl') || ''; }
+const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzXkhM6fqKSYQupFb-Pa8IXOBzW_1hIIe_hlz70YhDBgrSRqcTxUf51qiKpfGs_MJU_zA/exec';
+function getSheetUrl(){ return localStorage.getItem('sheetWebAppUrl') || DEFAULT_SHEET_URL; }
 function pendingKey(){ return 'pending_queue'; }
 
 function loadPendingQueue(){
