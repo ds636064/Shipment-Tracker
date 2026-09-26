@@ -63,7 +63,7 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
       <input type="date" id="dateInput">
     </div>
   </div>
-  <div class="hint" id="syncStatus" style="margin-bottom:10px;">Sheet URL set nahi hai. <a href="#" id="setupLink">Setup karo</a> (ek baar ke liye)</div>
+  <div class="hint" id="syncStatus" style="margin-bottom:10px;">Please set Sheet URL. <a href="#" id="setupLink">please setup</a> (one time setup)</div>
 
   <div class="card" id="setupCard" style="display:none;">
     <div class="row">
@@ -94,13 +94,13 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
       <button class="btn-primary" id="addBtn">Add</button>
       <button class="btn-scan" id="scanBtn">📷 Camera Scan</button>
     </div>
-    <div class="hint">Pehle Customer + Weight bharo, phir "Camera Scan" dabao — ya USB/Bluetooth scanner se tracking box me seedha scan karo.</div>
+    <div class="hint">first add Customer + Weight enter, again "Camera Scan" press — Use USB/Bluetooth scanner for enter Tracking Number.</div>
   </div>
 
   <div id="scanOverlay">
-    <div id="scanTop"><span>Customer: <b id="scanCustLabel">-</b> · Weight: <b id="scanWeightLabel">-</b></span><button class="btn-close" id="scanCloseBtn">Band Karo ✕</button></div>
+    <div id="scanTop"><span>Customer: <b id="scanCustLabel">-</b> · Weight: <b id="scanWeightLabel">-</b></span><button class="btn-close" id="scanCloseBtn">Close ✕</button></div>
     <div id="reader"></div>
-    <div id="scanLast">Barcode ko frame ke andar layein...</div>
+    <div id="scanLast">Ensure Barcode Under Frame...</div>
   </div>
 
   <div class="stats">
