@@ -232,11 +232,17 @@ function render(){
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
+function isDuplicate(tracking){
+  const all = [...entries, ...pending];
+  return all.some(en => en.tracking === tracking);
+}
+
 async function addEntry(customer, tracking, weight){
   customer = customer !== undefined ? customer : $('custInput').value.trim();
   tracking = tracking !== undefined ? tracking : $('trackInput').value.trim();
   weight = weight !== undefined ? weight : ($('weightInput').value.trim() || '1');
-  if(!customer || !tracking) return false;
+  if(!customer || !tracking) return {ok:false, reason:'missing'};
+  if(isDuplicate(tracking)) return {ok:false, reason:'duplicate'};
   const time = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
   const entry = {id: Date.now()+'-'+Math.random().toString(36).slice(2,7), date: dateStr, customer, tracking, weight, time, _pending:true};
   pending.push(entry);
@@ -253,11 +259,17 @@ async function addEntry(customer, tracking, weight){
       render();
     }catch(e){ /* stays in pending, will retry */ }
   }
-  return true;
+  return {ok:true};
 }
 
-$('addBtn').onclick = async ()=>{ if(await addEntry()){ $('trackInput').value=''; } $('trackInput').focus(); };
-$('trackInput').addEventListener('keydown', async e=>{ if(e.key==='Enter'){ e.preventDefault(); if(await addEntry()){ $('trackInput').value=''; } } });
+async function handleManualAdd(){
+  const res = await addEntry();
+  if(res.ok){ $('trackInput').value=''; }
+  else if(res.reason==='duplicate'){ alert('⚠ Ye tracking number pehle se add ho chuka hai: '+$('trackInput').value.trim()); }
+  $('trackInput').focus();
+}
+$('addBtn').onclick = handleManualAdd;
+$('trackInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); handleManualAdd(); } });
 $('weightInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('trackInput').focus(); } });
 $('custInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('weightInput').focus(); } });
 $('searchInput').addEventListener('input', render);
@@ -284,13 +296,18 @@ $('scanBtn').onclick = async ()=>{
     await qrScanner.start(
       { facingMode: 'environment' },
       { fps: 10, qrbox: { width: 260, height: 160 } },
-      (decodedText)=>{
+      async (decodedText)=>{
         const now = Date.now();
         if(decodedText === lastScanCode && (now-lastScanTime) < 2500) return;
         lastScanCode = decodedText; lastScanTime = now;
-        addEntry(customer, decodedText, weight);
-        $('scanLast').textContent = '✔ Added: '+decodedText;
-        if(navigator.vibrate) navigator.vibrate(80);
+        const res = await addEntry(customer, decodedText, weight);
+        if(res.ok){
+          $('scanLast').textContent = '✔ Added: '+decodedText;
+          if(navigator.vibrate) navigator.vibrate(80);
+        }else if(res.reason==='duplicate'){
+          $('scanLast').textContent = '⚠ Already added: '+decodedText;
+          if(navigator.vibrate) navigator.vibrate([60,60,60]);
+        }
       },
       ()=>{}
     );
