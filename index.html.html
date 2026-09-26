@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shipment Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --text:#1a1d23; --muted:#6b7280;
+  --border:#e3e5e9; --accent:#2563eb; --accent-text:#ffffff;
+  --danger:#dc2626; --success:#16a34a; --input-bg:#ffffff;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#14161a; --card:#1d2026; --text:#eef0f3; --muted:#9aa1ac;
+    --border:#2c3038; --accent:#3b82f6; --accent-text:#ffffff;
+    --input-bg:#22262d;
+  }
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+.wrap{max-width:920px;margin:0 auto;padding:16px 14px 60px;}
+h1{font-size:20px;margin:4px 0 14px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px;}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;}
+.field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:110px;}
+label{font-size:12px;color:var(--muted);}
+input,select{background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:15px;width:100%;}
+button{border:none;border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;}
+.btn-primary{background:var(--accent);color:var(--accent-text);}
+.btn-secondary{background:var(--border);color:var(--text);}
+.btn-scan{background:var(--success);color:#fff;}
+.btn-danger{background:transparent;color:var(--danger);padding:4px 8px;font-size:13px;}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:120px;}
+.stat b{display:block;font-size:20px;}
+.stat span{font-size:12px;color:var(--muted);}
+.summary-item{display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:6px 0;font-size:14px;}
+.summary-item:last-child{border-bottom:none;}
+.table-wrap{overflow-x:auto;}
+table{border-collapse:collapse;width:100%;font-size:14px;}
+th,td{padding:7px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
+.dup{color:var(--danger);font-weight:600;}
+.top-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+.hint{font-size:12px;color:var(--muted);margin-top:4px;}
+#scanOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:999;display:none;flex-direction:column;padding:16px 0;}
+#scanOverlay.open{display:flex;}
+#scanTop{display:flex;justify-content:space-between;align-items:center;padding:0 14px 10px;color:#fff;}
+#scanLast{color:#fff;text-align:center;font-size:15px;padding:8px 14px;min-height:20px;}
+#reader{width:min(94vw,420px);margin:0 auto;border-radius:12px;overflow:hidden;}
+.btn-close{background:#3a3d44;color:#fff;padding:8px 14px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top-row">
+    <h1>📦 Shipment Tracker</h1>
+    <div class="field" style="max-width:170px;">
+      <label>Date</label>
+      <input type="date" id="dateInput">
+    </div>
+  </div>
+  <div class="hint" id="syncStatus" style="margin-bottom:10px;">Sheet URL set nahi hai. <a href="#" id="setupLink">Setup karo</a> (ek baar ke liye)</div>
+
+  <div class="card" id="setupCard" style="display:none;">
+    <div class="row">
+      <div class="field">
+        <label>Google Apps Script Web App URL</label>
+        <input id="sheetUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+      </div>
+      <button class="btn-primary" id="saveUrlBtn">Save</button>
+    </div>
+    <div class="hint">Ye URL sirf ek baar dalna hai, phir is browser me yaad rahega.</div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="field">
+        <label>Customer Name</label>
+        <input id="custInput" list="custList" placeholder="e.g. Ram Collection">
+        <datalist id="custList"></datalist>
+      </div>
+      <div class="field" style="max-width:110px;">
+        <label>Weight (kg)</label>
+        <input id="weightInput" type="number" step="0.01" placeholder="1">
+      </div>
+      <div class="field" style="flex:2;min-width:180px;">
+        <label>Tracking Number</label>
+        <input id="trackInput" placeholder="Scan or type, then Enter">
+      </div>
+      <button class="btn-primary" id="addBtn">Add</button>
+      <button class="btn-scan" id="scanBtn">📷 Camera Scan</button>
+    </div>
+    <div class="hint">Pehle Customer + Weight bharo, phir "Camera Scan" dabao — ya USB/Bluetooth scanner se tracking box me seedha scan karo.</div>
+  </div>
+
+  <div id="scanOverlay">
+    <div id="scanTop"><span>Customer: <b id="scanCustLabel">-</b> · Weight: <b id="scanWeightLabel">-</b></span><button class="btn-close" id="scanCloseBtn">Band Karo ✕</button></div>
+    <div id="reader"></div>
+    <div id="scanLast">Barcode ko frame ke andar layein...</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="statTotal">0</b><span>Total Shipments</span></div>
+    <div class="stat"><b id="statCust">0</b><span>Customers</span></div>
+    <div class="stat"><b id="statWeight">0</b><span>Total Weight (kg)</span></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:8px;">
+      <div class="field" style="min-width:160px;"><label>Search</label><input id="searchInput" placeholder="Customer ya tracking..."></div>
+      <button class="btn-secondary" id="exportBtn">⬇ Export Excel</button>
+    </div>
+    <div id="summaryBox"></div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Customer</th><th>Tracking No.</th><th>Weight</th><th>Time</th><th></th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let entries=[];      // confirmed entries (from sheet, for this date)
+let pending=[];      // added locally, not yet confirmed synced
+let dateStr = new Date().toISOString().slice(0,10);
+const $=id=>document.getElementById(id);
+$('dateInput').value = dateStr;
+
+function getSheetUrl(){ return localStorage.getItem('sheetWebAppUrl') || ''; }
+function pendingKey(){ return 'pending_queue'; }
+
+function loadPendingQueue(){
+  try{ pending = JSON.parse(localStorage.getItem(pendingKey())||'[]'); }catch(e){ pending=[]; }
+}
+function savePendingQueue(){ localStorage.setItem(pendingKey(), JSON.stringify(pending)); }
+
+function localCacheKey(){ return 'cache_'+dateStr; }
+function saveLocalCache(){ localStorage.setItem(localCacheKey(), JSON.stringify(entries)); }
+function loadLocalCache(){ try{ return JSON.parse(localStorage.getItem(localCacheKey())||'[]'); }catch(e){ return []; } }
+
+function setStatus(msg){ $('syncStatus').innerHTML = msg; }
+
+$('setupLink').onclick = (e)=>{ e.preventDefault(); $('setupCard').style.display='block'; $('sheetUrlInput').value = getSheetUrl(); };
+$('saveUrlBtn').onclick = ()=>{
+  const url = $('sheetUrlInput').value.trim();
+  if(url){ localStorage.setItem('sheetWebAppUrl', url); $('setupCard').style.display='none'; loadDate(); }
+};
+
+async function loadDate(){
+  loadPendingQueue();
+  entries = loadLocalCache(); // instant render from cache
+  render();
+  const url = getSheetUrl();
+  if(!url){ setStatus('Sheet URL set nahi hai. <a href="#" id="setupLink2">Setup karo</a> (ek baar ke liye)'); document.getElementById('setupLink2').onclick=(e)=>{e.preventDefault();$('setupCard').style.display='block';$('sheetUrlInput').value=getSheetUrl();}; return; }
+  setStatus('Sheet se sync ho raha hai...');
+  try{
+    const res = await fetch(url+'?date='+encodeURIComponent(dateStr));
+    const data = await res.json();
+    entries = data.map(r=>({id:'s-'+r.tracking+'-'+r.time, customer:r.customer, tracking:r.tracking, weight:r.weight, time:r.time}));
+    saveLocalCache();
+    setStatus('✅ Sync ho gaya ('+entries.length+' entries)');
+    render();
+  }catch(e){
+    setStatus('⚠ Sync fail hua, offline data dikha rahe hain');
+  }
+  trySyncPending();
+}
+
+async function trySyncPending(){
+  const url = getSheetUrl();
+  if(!url || !pending.length) return;
+  const stillPending = [];
+  for(const p of pending){
+    try{
+      await fetch(url, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(p)});
+    }catch(e){ stillPending.push(p); }
+  }
+  pending = stillPending;
+  savePendingQueue();
+  if(pending.length===0 && getSheetUrl()) loadDate();
+  else render();
+}
+window.addEventListener('online', trySyncPending);
+setInterval(trySyncPending, 20000);
+
+function render(){
+  const q = $('searchInput').value.trim().toLowerCase();
+  const all = [...entries, ...pending.filter(p=>p.date===dateStr)];
+  const filtered = all.filter(en => !q || en.customer.toLowerCase().includes(q) || en.tracking.toLowerCase().includes(q));
+
+  const counts = {};
+  all.forEach(en=>{counts[en.tracking]=(counts[en.tracking]||0)+1;});
+
+  $('tbody').innerHTML = filtered.map((en,i)=>`
+    <tr>
+      <td>${i+1}</td>
+      <td>${escapeHtml(en.customer)}</td>
+      <td class="${counts[en.tracking]>1?'dup':''}">${escapeHtml(en.tracking)}${en._pending?' <span style="color:var(--muted);font-size:11px;">(syncing...)</span>':''}</td>
+      <td>${en.weight} kg</td>
+      <td>${en.time}</td>
+      <td></td>
+    </tr>`).join('');
+
+  $('statTotal').textContent = all.length;
+  const custSet = new Set(all.map(e=>e.customer));
+  $('statCust').textContent = custSet.size;
+  const totalW = all.reduce((s,e)=>s+Number(e.weight||0),0);
+  $('statWeight').textContent = totalW.toFixed(2);
+
+  $('custList').innerHTML = [...custSet].map(c=>`<option value="${escapeHtml(c)}">`).join('');
+
+  const byCust = {};
+  all.forEach(en=>{
+    byCust[en.customer] = byCust[en.customer] || {};
+    byCust[en.customer][en.weight] = (byCust[en.customer][en.weight]||0)+1;
+  });
+  const rows = Object.keys(byCust).sort().map(c=>{
+    const parts = Object.entries(byCust[c]).map(([w,n])=>`${n}×${w}kg`).join(', ');
+    const total = Object.values(byCust[c]).reduce((a,b)=>a+b,0);
+    return `<div class="summary-item"><span>${escapeHtml(c)} (${total})</span><span>${parts}</span></div>`;
+  });
+  $('summaryBox').innerHTML = rows.join('') || '<div class="hint">Abhi koi entry nahi hai.</div>';
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+async function addEntry(customer, tracking, weight){
+  customer = customer !== undefined ? customer : $('custInput').value.trim();
+  tracking = tracking !== undefined ? tracking : $('trackInput').value.trim();
+  weight = weight !== undefined ? weight : ($('weightInput').value.trim() || '1');
+  if(!customer || !tracking) return false;
+  const time = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  const entry = {id: Date.now()+'-'+Math.random().toString(36).slice(2,7), date: dateStr, customer, tracking, weight, time, _pending:true};
+  pending.push(entry);
+  savePendingQueue();
+  render();
+  const url = getSheetUrl();
+  if(url){
+    try{
+      await fetch(url, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(entry)});
+      pending = pending.filter(p=>p.id!==entry.id);
+      savePendingQueue();
+      entries.push({...entry, _pending:false});
+      saveLocalCache();
+      render();
+    }catch(e){ /* stays in pending, will retry */ }
+  }
+  return true;
+}
+
+$('addBtn').onclick = async ()=>{ if(await addEntry()){ $('trackInput').value=''; } $('trackInput').focus(); };
+$('trackInput').addEventListener('keydown', async e=>{ if(e.key==='Enter'){ e.preventDefault(); if(await addEntry()){ $('trackInput').value=''; } } });
+$('weightInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('trackInput').focus(); } });
+$('custInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('weightInput').focus(); } });
+$('searchInput').addEventListener('input', render);
+$('dateInput').addEventListener('change', ()=>{ dateStr = $('dateInput').value; loadDate(); });
+
+// ---- Camera barcode scanning ----
+let qrScanner = null;
+let lastScanCode = null, lastScanTime = 0;
+
+$('scanBtn').onclick = async ()=>{
+  const customer = $('custInput').value.trim();
+  const weight = $('weightInput').value.trim() || '1';
+  if(!customer){ alert('Pehle Customer Name bharo.'); $('custInput').focus(); return; }
+  if(typeof Html5Qrcode === 'undefined'){ alert('Scanner library load nahi ho payi. Internet connection check karo.'); return; }
+  if(!window.isSecureContext){ alert('Camera sirf HTTPS site par kaam karega. Ise HTTPS par host karo.'); return; }
+
+  $('scanCustLabel').textContent = customer;
+  $('scanWeightLabel').textContent = weight+' kg';
+  $('scanOverlay').classList.add('open');
+  $('scanLast').textContent = 'Camera khul raha hai...';
+
+  qrScanner = new Html5Qrcode('reader');
+  try{
+    await qrScanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 260, height: 160 } },
+      (decodedText)=>{
+        const now = Date.now();
+        if(decodedText === lastScanCode && (now-lastScanTime) < 2500) return;
+        lastScanCode = decodedText; lastScanTime = now;
+        addEntry(customer, decodedText, weight);
+        $('scanLast').textContent = '✔ Added: '+decodedText;
+        if(navigator.vibrate) navigator.vibrate(80);
+      },
+      ()=>{}
+    );
+  }catch(err){
+    $('scanLast').textContent = 'Camera nahi khul payi: '+(err.message||err);
+  }
+};
+
+async function stopScan(){
+  $('scanOverlay').classList.remove('open');
+  if(qrScanner){
+    try{ await qrScanner.stop(); qrScanner.clear(); }catch(e){}
+    qrScanner = null;
+  }
+  $('trackInput').focus();
+}
+$('scanCloseBtn').onclick = stopScan;
+
+$('exportBtn').onclick = ()=>{
+  const all = [...entries, ...pending.filter(p=>p.date===dateStr)];
+  if(!all.length){ alert('Koi entry nahi hai export karne ke liye.'); return; }
+  const rows = all.map((e,i)=>({'#':i+1,'Customer':e.customer,'Tracking Number':e.tracking,'Weight (kg)':e.weight,'Time':e.time}));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, dateStr);
+  XLSX.writeFile(wb, `shipments_${dateStr}.xlsx`);
+};
+
+loadDate();
+</script>
+</body>
+</html>
