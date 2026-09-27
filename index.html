@@ -63,7 +63,7 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
       <input type="date" id="dateInput">
     </div>
   </div>
-  <div class="hint" id="syncStatus" style="margin-bottom:10px;">Please set Sheet URL. <a href="#" id="setupLink">please setup</a> (one time setup)</div>
+  <div class="hint" id="syncStatus" style="margin-bottom:10px;">Sheet URL set nahi hai. <a href="#" id="setupLink">Setup karo</a> (ek baar ke liye)</div>
 
   <div class="card" id="setupCard" style="display:none;">
     <div class="row">
@@ -94,13 +94,13 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
       <button class="btn-primary" id="addBtn">Add</button>
       <button class="btn-scan" id="scanBtn">📷 Camera Scan</button>
     </div>
-    <div class="hint">first add Customer + Weight enter, again "Camera Scan" press — Use USB/Bluetooth scanner for enter Tracking Number.</div>
+    <div class="hint">Pehle Customer + Weight bharo, phir "Camera Scan" dabao — ya USB/Bluetooth scanner se tracking box me seedha scan karo.</div>
   </div>
 
   <div id="scanOverlay">
-    <div id="scanTop"><span>Customer: <b id="scanCustLabel">-</b> · Weight: <b id="scanWeightLabel">-</b></span><button class="btn-close" id="scanCloseBtn">Close ✕</button></div>
+    <div id="scanTop"><span>Customer: <b id="scanCustLabel">-</b> · Weight: <b id="scanWeightLabel">-</b></span><button class="btn-close" id="scanCloseBtn">Band Karo ✕</button></div>
     <div id="reader"></div>
-    <div id="scanLast">Ensure Barcode Under Frame...</div>
+    <div id="scanLast">Barcode ko frame ke andar layein...</div>
   </div>
 
   <div class="stats">
@@ -252,21 +252,29 @@ async function addEntry(customer, tracking, weight){
   const url = getSheetUrl();
   if(url){
     try{
-      await fetch(url, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(entry)});
+      const res = await fetch(url, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(entry)});
+      const data = await res.json();
+      if(data.status === 'duplicate'){
+        pending = pending.filter(p=>p.id!==entry.id);
+        savePendingQueue();
+        render();
+        return {ok:false, reason:'duplicate'};
+      }
       pending = pending.filter(p=>p.id!==entry.id);
       savePendingQueue();
       entries.push({...entry, _pending:false});
       saveLocalCache();
       render();
-    }catch(e){ /* stays in pending, will retry */ }
+    }catch(e){ /* network fail — stays in pending, will retry */ }
   }
   return {ok:true};
 }
 
 async function handleManualAdd(){
+  const trackingVal = $('trackInput').value.trim();
   const res = await addEntry();
   if(res.ok){ $('trackInput').value=''; }
-  else if(res.reason==='duplicate'){ alert('⚠ Ye tracking number pehle se add ho chuka hai: '+$('trackInput').value.trim()); }
+  else if(res.reason==='duplicate'){ alert('⚠ Ye tracking number pehle se add ho chuka hai: '+trackingVal); $('trackInput').value=''; }
   $('trackInput').focus();
 }
 $('addBtn').onclick = handleManualAdd;
