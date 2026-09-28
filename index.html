@@ -101,6 +101,10 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
     <div id="scanTop"><span>Customer: <b id="scanCustLabel">-</b> · Weight: <b id="scanWeightLabel">-</b></span><button class="btn-close" id="scanCloseBtn">Band Karo ✕</button></div>
     <div id="reader"></div>
     <div id="scanLast">Barcode ko frame ke andar layein...</div>
+    <div style="text-align:center;margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+      <button class="btn-scan" id="photoCaptureBtn" style="display:none;">📸 Photo Lo</button>
+      <button class="btn-close" id="scanRetryBtn" style="display:none;">🔄 Dobara Try Karo</button>
+    </div>
   </div>
 
   <div class="stats">
@@ -120,7 +124,7 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
   <div class="card">
     <div class="table-wrap">
       <table>
-        <thead><tr><th>#</th><th>Customer</th><th>Tracking No.</th><th>Weight</th><th>Time</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Customer</th><th>Tracking No.</th><th>Weight</th><th>Time</th><th>Photo</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -165,7 +169,7 @@ async function loadDate(){
   try{
     const res = await fetch(url+'?date='+encodeURIComponent(dateStr));
     const data = await res.json();
-    entries = data.map(r=>({id:'s-'+r.tracking+'-'+r.time, customer:r.customer, tracking:r.tracking, weight:r.weight, time:r.time}));
+    entries = data.map(r=>({id:'s-'+r.tracking+'-'+r.time, customer:r.customer, tracking:r.tracking, weight:r.weight, time:r.time, photo:r.photo||''}));
     saveLocalCache();
     setStatus('✅ Sync ho gaya ('+entries.length+' entries)');
     render();
@@ -207,7 +211,7 @@ function render(){
       <td class="${counts[en.tracking]>1?'dup':''}">${escapeHtml(en.tracking)}${en._pending?' <span style="color:var(--muted);font-size:11px;">(syncing...)</span>':''}</td>
       <td>${en.weight} kg</td>
       <td>${en.time}</td>
-      <td></td>
+      <td>${en.photo?`<a href="${en.photo}" target="_blank">🖼 Dekho</a>`:'—'}</td>
     </tr>`).join('');
 
   $('statTotal').textContent = all.length;
@@ -288,31 +292,72 @@ $('dateInput').addEventListener('change', ()=>{ dateStr = $('dateInput').value; 
 let qrScanner = null;
 let lastScanCode = null, lastScanTime = 0;
 
-$('scanBtn').onclick = async ()=>{
+$('scanBtn').onclick = ()=>{
   const customer = $('custInput').value.trim();
-  const weight = $('weightInput').value.trim() || '1';
   if(!customer){ alert('Pehle Customer Name bharo.'); $('custInput').focus(); return; }
+  openScanner(customer, $('weightInput').value.trim() || '1');
+};
+$('scanRetryBtn').onclick = ()=>{
+  const customer = $('scanCustLabel').textContent;
+  const weight = $('scanWeightLabel').textContent.replace(' kg','');
+  openScanner(customer, weight);
+};
+
+async function openScanner(customer, weight){
   if(typeof Html5Qrcode === 'undefined'){ alert('Scanner library load nahi ho payi. Internet connection check karo.'); return; }
-  if(!window.isSecureContext){ alert('Camera sirf HTTPS site par kaam karega. Ise HTTPS par host karo.'); return; }
+  if(!window.isSecureContext){ alert('Camera sirf HTTPS site par kaam karega.'); return; }
 
   $('scanCustLabel').textContent = customer;
   $('scanWeightLabel').textContent = weight+' kg';
   $('scanOverlay').classList.add('open');
-  $('scanLast').textContent = 'Camera khul raha hai...';
+  $('scanRetryBtn').style.display = 'none';
+  $('scanLast').textContent = 'Camera dhoondh rahe hain...';
 
-  qrScanner = new Html5Qrcode('reader');
+  // Pehle camera permission/availability check — taaki spinner me atke bina clear reason mile
+  let cameras;
+  try{
+    const camPromise = Html5Qrcode.getCameras();
+    const timeout = new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT')), 8000));
+    cameras = await Promise.race([camPromise, timeout]);
+  }catch(err){
+    showScanError(err);
+    return;
+  }
+  if(!cameras || !cameras.length){
+    $('scanLast').textContent = '❌ Koi camera nahi mila is device/browser me.';
+    $('scanRetryBtn').style.display = 'inline-block';
+    return;
+  }
+
+  $('scanLast').textContent = 'Camera khul raha hai...';
+  qrScanner = new Html5Qrcode('reader', {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.ITF,
+      Html5QrcodeSupportedFormats.EAN_13
+    ]
+  });
   try{
     await qrScanner.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 260, height: 160 } },
+      { fps: 10, qrbox: { width: 280, height: 140 } },
       async (decodedText)=>{
         const now = Date.now();
         if(decodedText === lastScanCode && (now-lastScanTime) < 2500) return;
         lastScanCode = decodedText; lastScanTime = now;
+
+        if(!isValidTracking(decodedText)){
+          $('scanLast').textContent = '⚠ Galat scan (ignore kiya): '+decodedText+' — dobara try karo';
+          if(navigator.vibrate) navigator.vibrate([30,30,30]);
+          return;
+        }
+
         const res = await addEntry(customer, decodedText, weight);
         if(res.ok){
           $('scanLast').textContent = '✔ Added: '+decodedText;
           if(navigator.vibrate) navigator.vibrate(80);
+          offerPhotoCapture(decodedText);
         }else if(res.reason==='duplicate'){
           $('scanLast').textContent = '⚠ Already added: '+decodedText;
           if(navigator.vibrate) navigator.vibrate([60,60,60]);
@@ -321,12 +366,82 @@ $('scanBtn').onclick = async ()=>{
       ()=>{}
     );
   }catch(err){
-    $('scanLast').textContent = 'Camera nahi khul payi: '+(err.message||err);
+    showScanError(err);
+  }
+}
+
+// DTDC jaise tracking numbers ka format: D + 10 digits (jaise D2008575749).
+function isValidTracking(code){
+  const c = code.trim();
+  const isDTDC = /^D\d{9,11}$/.test(c);
+  const isDelhivery = /^\d{10,14}$/.test(c);
+  const isGenericAlnum = /^[A-Z0-9]{10,20}$/.test(c);
+  return isDTDC || isDelhivery || isGenericAlnum;
+}
+
+// ---- Photo capture (scan ke turant baad optional photo) ----
+let photoTimer = null;
+let lastAddedTracking = null;
+
+function offerPhotoCapture(tracking){
+  lastAddedTracking = tracking;
+  $('photoCaptureBtn').style.display = 'inline-block';
+  clearTimeout(photoTimer);
+  photoTimer = setTimeout(()=>{
+    $('photoCaptureBtn').style.display = 'none';
+    lastAddedTracking = null;
+  }, 6000);
+}
+
+$('photoCaptureBtn').onclick = async ()=>{
+  if(!lastAddedTracking){ return; }
+  const tracking = lastAddedTracking;
+  clearTimeout(photoTimer);
+  $('photoCaptureBtn').style.display = 'none';
+
+  const video = document.querySelector('#reader video');
+  if(!video || !video.videoWidth){ $('scanLast').textContent = '⚠ Camera video nahi mila, photo nahi le paye.'; return; }
+
+  const maxW = 640;
+  const scale = Math.min(1, maxW / video.videoWidth);
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth * scale;
+  canvas.height = video.videoHeight * scale;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+
+  $('scanLast').textContent = '📤 Photo upload ho rahi hai...';
+  const url = getSheetUrl();
+  try{
+    const res = await fetch(url, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'photo', tracking, imageBase64: base64})});
+    const data = await res.json();
+    $('scanLast').textContent = (data.status==='ok') ? '✔ Photo saved: '+tracking : '⚠ Photo save nahi hui.';
+  }catch(e){
+    $('scanLast').textContent = '⚠ Photo upload fail (internet check karo).';
   }
 };
 
+function showScanError(err){
+  const msg = (err && err.message) || String(err);
+  let text;
+  if(msg.includes('TIMEOUT')){
+    text = '❌ Camera response nahi de raha. Ho sakta hai aap isse kisi app (WhatsApp/Facebook) ke andar wale browser me khol rahe ho — isse Chrome me seedha kholke try karo.';
+  }else if(msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('notallowed')){
+    text = '❌ Camera permission block hai. Browser settings > Site settings > Camera me jaake is site ko Allow karo.';
+  }else if(msg.toLowerCase().includes('notfound')){
+    text = '❌ Camera nahi mila is device me.';
+  }else{
+    text = '❌ Camera nahi khul paya: '+msg;
+  }
+  $('scanLast').textContent = text;
+  $('scanRetryBtn').style.display = 'inline-block';
+}
+
 async function stopScan(){
   $('scanOverlay').classList.remove('open');
+  clearTimeout(photoTimer);
+  $('photoCaptureBtn').style.display = 'none';
+  lastAddedTracking = null;
   if(qrScanner){
     try{ await qrScanner.stop(); qrScanner.clear(); }catch(e){}
     qrScanner = null;
