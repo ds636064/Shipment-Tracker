@@ -167,14 +167,17 @@ async function loadDate(){
   if(!url){ setStatus('Sheet URL set nahi hai. <a href="#" id="setupLink2">Setup karo</a> (ek baar ke liye)'); document.getElementById('setupLink2').onclick=(e)=>{e.preventDefault();$('setupCard').style.display='block';$('sheetUrlInput').value=getSheetUrl();}; return; }
   setStatus('Sheet se sync ho raha hai...');
   try{
-    const res = await fetch(url+'?date='+encodeURIComponent(dateStr));
+    const fetchPromise = fetch(url+'?date='+encodeURIComponent(dateStr));
+    const timeout = new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT')), 12000));
+    const res = await Promise.race([fetchPromise, timeout]);
     const data = await res.json();
     entries = data.map(r=>({id:'s-'+r.tracking+'-'+r.time, customer:r.customer, tracking:r.tracking, weight:r.weight, time:r.time, photo:r.photo||''}));
     saveLocalCache();
     setStatus('✅ Sync ho gaya ('+entries.length+' entries)');
     render();
   }catch(e){
-    setStatus('⚠ Sync fail hua, offline data dikha rahe hain');
+    const reason = (e && e.message === 'TIMEOUT') ? '(12 sec me jawab nahi mila)' : '(network/script error)';
+    setStatus('⚠ Sync fail hua '+reason+', offline data dikha rahe hain');
   }
   trySyncPending();
 }
