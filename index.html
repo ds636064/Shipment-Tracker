@@ -373,13 +373,15 @@ async function openScanner(customer, weight){
   }
 }
 
-// DTDC jaise tracking numbers ka format: D + 10 digits (jaise D2008575749).
+// Sirf ye 2 format accept honge — koi aur alphanumeric code reject ho jaayega:
+// - DTDC: D + 9-11 digits (jaise D2008575749)
+// - Delhivery: pura numeric, 10-14 digits (jaise 61976310060653)
+// Naya courier add karna ho to yahan ek aur line jod dena.
 function isValidTracking(code){
   const c = code.trim();
-  const isDTDC = /^D\d{9,11}$/.test(c);
-  const isDelhivery = /^\d{10,14}$/.test(c);
-  const isGenericAlnum = /^[A-Z0-9]{10,20}$/.test(c);
-  return isDTDC || isDelhivery || isGenericAlnum;
+  const isDTDC = /^D\d{8,10}$/.test(c);       // jaise D85845300, D2008575749
+  const isDelhivery = /^\d{14}$/.test(c);     // jaise 61976310059496, 39686410726821 (Express/Surface dono)
+  return isDTDC || isDelhivery;
 }
 
 // ---- Photo capture (scan ke turant baad optional photo) ----
