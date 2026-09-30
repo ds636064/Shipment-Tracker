@@ -138,7 +138,7 @@ let dateStr = new Date().toISOString().slice(0,10);
 const $=id=>document.getElementById(id);
 $('dateInput').value = dateStr;
 
-const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzIDYqn5xAgNbxq1e66XvjAQ96a81fBgybtXSkkH5f9XND0Mqj8vteM-U-6xWm4Bp9Bqg/exec';
+const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbwqBdjUkC2KtmUjdkEimVfS5d_uVRgnZyo_C8rrUE9mYkaI11kQ9hMJT5pM3EP2eQtYKg/exec';
 function getSheetUrl(){ return localStorage.getItem('sheetWebAppUrl') || DEFAULT_SHEET_URL; }
 function pendingKey(){ return 'pending_queue'; }
 
