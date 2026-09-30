@@ -166,18 +166,27 @@ async function loadDate(){
   const url = getSheetUrl();
   if(!url){ setStatus('Sheet URL set nahi hai. <a href="#" id="setupLink2">Setup karo</a> (ek baar ke liye)'); document.getElementById('setupLink2').onclick=(e)=>{e.preventDefault();$('setupCard').style.display='block';$('sheetUrlInput').value=getSheetUrl();}; return; }
   setStatus('Sheet se sync ho raha hai...');
-  try{
+  const fetchWithTimeout = async (ms)=>{
     const fetchPromise = fetch(url+'?date='+encodeURIComponent(dateStr));
-    const timeout = new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT')), 12000));
+    const timeout = new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT')), ms));
     const res = await Promise.race([fetchPromise, timeout]);
-    const data = await res.json();
+    return res.json();
+  };
+  try{
+    let data;
+    try{
+      data = await fetchWithTimeout(15000);
+    }catch(e1){
+      setStatus('Sheet slow hai, dobara try kar rahe hain...');
+      data = await fetchWithTimeout(15000); // ek retry, temporary slowness ke liye
+    }
     entries = data.map(r=>({id:'s-'+r.tracking+'-'+r.time, customer:r.customer, tracking:r.tracking, weight:r.weight, time:r.time, photo:r.photo||''}));
     saveLocalCache();
     setStatus('✅ Sync ho gaya ('+entries.length+' entries)');
     render();
   }catch(e){
-    const reason = (e && e.message === 'TIMEOUT') ? '(12 sec me jawab nahi mila)' : '(network/script error)';
-    setStatus('⚠ Sync fail hua '+reason+', offline data dikha rahe hain');
+    const reason = (e && e.message === 'TIMEOUT') ? '(2 baar try kiya, jawab nahi mila)' : '(network/script error)';
+    setStatus('⚠ List refresh fail hua '+reason+' — nayi entries add hoti rahengi, bas list dikhane me dikkat hai');
   }
   trySyncPending();
 }
