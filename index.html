@@ -242,7 +242,7 @@ function isDuplicate(tracking){
   return all.some(en => en.tracking === tracking);
 }
 
-async function addEntry(customer, tracking, weight){
+function addEntry(customer, tracking, weight){
   customer = customer !== undefined ? customer : $('custInput').value.trim();
   tracking = tracking !== undefined ? tracking : $('trackInput').value.trim();
   weight = weight !== undefined ? weight : ($('weightInput').value.trim() || '1');
@@ -253,30 +253,34 @@ async function addEntry(customer, tracking, weight){
   pending.push(entry);
   savePendingQueue();
   render();
+  syncEntryToServer(entry); // background me — scanning rukti nahi
+  return {ok:true};
+}
+
+async function syncEntryToServer(entry){
   const url = getSheetUrl();
-  if(url){
-    try{
-      const res = await fetch(url, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(entry)});
-      const data = await res.json();
-      if(data.status === 'duplicate'){
-        pending = pending.filter(p=>p.id!==entry.id);
-        savePendingQueue();
-        render();
-        return {ok:false, reason:'duplicate'};
-      }
+  if(!url) return;
+  try{
+    const res = await fetch(url, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(entry)});
+    const data = await res.json();
+    if(data.status === 'duplicate'){
       pending = pending.filter(p=>p.id!==entry.id);
       savePendingQueue();
-      entries.push({...entry, _pending:false});
-      saveLocalCache();
       render();
-    }catch(e){ /* network fail — stays in pending, will retry */ }
-  }
-  return {ok:true};
+      setStatus('⚠ '+entry.tracking+' Sheet me pehle se tha, list se hata diya gaya');
+      return;
+    }
+    pending = pending.filter(p=>p.id!==entry.id);
+    savePendingQueue();
+    entries.push({...entry, _pending:false});
+    saveLocalCache();
+    render();
+  }catch(e){ /* network fail — pending me rahega, trySyncPending() dobara try karega */ }
 }
 
 async function handleManualAdd(){
   const trackingVal = $('trackInput').value.trim();
-  const res = await addEntry();
+  const res = addEntry();
   if(res.ok){ $('trackInput').value=''; }
   else if(res.reason==='duplicate'){ alert('⚠ Ye tracking number pehle se add ho chuka hai: '+trackingVal); $('trackInput').value=''; }
   $('trackInput').focus();
@@ -334,8 +338,7 @@ async function openScanner(customer, weight){
     formatsToSupport: [
       Html5QrcodeSupportedFormats.CODE_128,
       Html5QrcodeSupportedFormats.CODE_39,
-      Html5QrcodeSupportedFormats.ITF,
-      Html5QrcodeSupportedFormats.EAN_13
+      Html5QrcodeSupportedFormats.ITF
     ]
   });
   try{
