@@ -58,12 +58,15 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
 <div class="wrap">
   <div class="top-row">
     <h1>📦 Shipment Tracker</h1>
-    <div class="field" style="max-width:170px;">
-      <label>Date</label>
-      <input type="date" id="dateInput">
+    <div style="display:flex;gap:8px;align-items:flex-end;">
+      <div class="field" style="max-width:170px;">
+        <label>Date</label>
+        <input type="date" id="dateInput">
+      </div>
+      <button class="btn-secondary" id="settingsBtn" title="Sheet URL badlo" style="padding:9px 12px;">⚙️</button>
     </div>
   </div>
-  <div class="hint" id="syncStatus" style="margin-bottom:10px;">Sheet URL set nahi hai. <a href="#" id="setupLink">Setup karo</a> (ek baar ke liye)</div>
+  <div class="hint" id="syncStatus" style="margin-bottom:10px;"></div>
 
   <div class="card" id="setupCard" style="display:none;">
     <div class="row">
@@ -86,6 +89,13 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
       <div class="field" style="max-width:110px;">
         <label>Weight (kg)</label>
         <input id="weightInput" type="number" step="0.01" placeholder="1">
+      </div>
+      <div class="field" style="max-width:120px;">
+        <label>Mode</label>
+        <select id="modeInput">
+          <option value="Surface">Surface</option>
+          <option value="Air">Air</option>
+        </select>
       </div>
       <div class="field" style="flex:2;min-width:180px;">
         <label>Tracking Number</label>
@@ -124,7 +134,7 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
   <div class="card">
     <div class="table-wrap">
       <table>
-        <thead><tr><th>#</th><th>Customer</th><th>Tracking No.</th><th>Weight</th><th>Time</th><th>Photo</th></tr></thead>
+        <thead><tr><th>#</th><th>Customer</th><th>Tracking No.</th><th>Weight</th><th>Mode</th><th>Time</th><th>Photo</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -153,7 +163,11 @@ function loadLocalCache(){ try{ return JSON.parse(localStorage.getItem(localCach
 
 function setStatus(msg){ $('syncStatus').innerHTML = msg; }
 
-$('setupLink').onclick = (e)=>{ e.preventDefault(); $('setupCard').style.display='block'; $('sheetUrlInput').value = getSheetUrl(); };
+$('settingsBtn').onclick = ()=>{
+  const c = $('setupCard');
+  c.style.display = (c.style.display === 'block') ? 'none' : 'block';
+  $('sheetUrlInput').value = getSheetUrl();
+};
 $('saveUrlBtn').onclick = ()=>{
   const url = $('sheetUrlInput').value.trim();
   if(url){ localStorage.setItem('sheetWebAppUrl', url); $('setupCard').style.display='none'; loadDate(); }
@@ -164,7 +178,6 @@ async function loadDate(){
   entries = loadLocalCache(); // instant render from cache
   render();
   const url = getSheetUrl();
-  if(!url){ setStatus('Sheet URL set nahi hai. <a href="#" id="setupLink2">Setup karo</a> (ek baar ke liye)'); document.getElementById('setupLink2').onclick=(e)=>{e.preventDefault();$('setupCard').style.display='block';$('sheetUrlInput').value=getSheetUrl();}; return; }
   setStatus('Sheet se sync ho raha hai...');
   const fetchWithTimeout = async (ms)=>{
     const fetchPromise = fetch(url+'?date='+encodeURIComponent(dateStr));
@@ -180,7 +193,7 @@ async function loadDate(){
       setStatus('Sheet slow hai, dobara try kar rahe hain...');
       data = await fetchWithTimeout(15000); // ek retry, temporary slowness ke liye
     }
-    entries = data.map(r=>({id:'s-'+r.tracking+'-'+r.time, customer:r.customer, tracking:r.tracking, weight:r.weight, time:r.time, photo:r.photo||''}));
+    entries = data.map(r=>({id:'s-'+r.tracking+'-'+r.time, customer:r.customer, tracking:r.tracking, weight:r.weight, mode:r.mode||'Surface', time:r.time, photo:r.photo||''}));
     saveLocalCache();
     setStatus('✅ Sync ho gaya ('+entries.length+' entries)');
     render();
@@ -222,6 +235,7 @@ function render(){
       <td>${escapeHtml(en.customer)}</td>
       <td class="${counts[en.tracking]>1?'dup':''}">${escapeHtml(en.tracking)}${en._pending?' <span style="color:var(--muted);font-size:11px;">(syncing...)</span>':''}</td>
       <td>${en.weight} kg</td>
+      <td>${escapeHtml(en.mode||'Surface')}</td>
       <td>${en.time}</td>
       <td>${en.photo?`<a href="${en.photo}" target="_blank">🖼 Dekho</a>`:'—'}</td>
     </tr>`).join('');
@@ -254,14 +268,15 @@ function isDuplicate(tracking){
   return all.some(en => en.tracking === tracking);
 }
 
-function addEntry(customer, tracking, weight){
+function addEntry(customer, tracking, weight, mode){
   customer = customer !== undefined ? customer : $('custInput').value.trim();
   tracking = tracking !== undefined ? tracking : $('trackInput').value.trim();
   weight = weight !== undefined ? weight : ($('weightInput').value.trim() || '1');
+  mode = mode !== undefined ? mode : ($('modeInput').value || 'Surface');
   if(!customer || !tracking) return {ok:false, reason:'missing'};
   if(isDuplicate(tracking)) return {ok:false, reason:'duplicate'};
   const time = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-  const entry = {id: Date.now()+'-'+Math.random().toString(36).slice(2,7), date: dateStr, customer, tracking, weight, time, _pending:true};
+  const entry = {id: Date.now()+'-'+Math.random().toString(36).slice(2,7), date: dateStr, customer, tracking, weight, mode, time, _pending:true};
   pending.push(entry);
   savePendingQueue();
   render();
@@ -311,20 +326,22 @@ let lastScanCode = null, lastScanTime = 0;
 $('scanBtn').onclick = ()=>{
   const customer = $('custInput').value.trim();
   if(!customer){ alert('Pehle Customer Name bharo.'); $('custInput').focus(); return; }
-  openScanner(customer, $('weightInput').value.trim() || '1');
+  openScanner(customer, $('weightInput').value.trim() || '1', $('modeInput').value || 'Surface');
 };
 $('scanRetryBtn').onclick = ()=>{
   const customer = $('scanCustLabel').textContent;
-  const weight = $('scanWeightLabel').textContent.replace(' kg','');
-  openScanner(customer, weight);
+  const weight = $('scanWeightLabel').textContent.split(' kg')[0];
+  openScanner(customer, weight, currentScanMode);
 };
 
-async function openScanner(customer, weight){
+let currentScanMode = 'Surface';
+async function openScanner(customer, weight, mode){
+  currentScanMode = mode || 'Surface';
   if(typeof Html5Qrcode === 'undefined'){ alert('Scanner library load nahi ho payi. Internet connection check karo.'); return; }
   if(!window.isSecureContext){ alert('Camera sirf HTTPS site par kaam karega.'); return; }
 
   $('scanCustLabel').textContent = customer;
-  $('scanWeightLabel').textContent = weight+' kg';
+  $('scanWeightLabel').textContent = weight+' kg · '+currentScanMode;
   $('scanOverlay').classList.add('open');
   $('scanRetryBtn').style.display = 'none';
   $('scanLast').textContent = 'Camera dhoondh rahe hain...';
@@ -368,7 +385,7 @@ async function openScanner(customer, weight){
           return;
         }
 
-        const res = await addEntry(customer, decodedText, weight);
+        const res = await addEntry(customer, decodedText, weight, currentScanMode);
         if(res.ok){
           $('scanLast').textContent = '✔ Added: '+decodedText;
           if(navigator.vibrate) navigator.vibrate(80);
@@ -470,7 +487,7 @@ $('scanCloseBtn').onclick = stopScan;
 $('exportBtn').onclick = ()=>{
   const all = [...entries, ...pending.filter(p=>p.date===dateStr)];
   if(!all.length){ alert('Koi entry nahi hai export karne ke liye.'); return; }
-  const rows = all.map((e,i)=>({'#':i+1,'Customer':e.customer,'Tracking Number':e.tracking,'Weight (kg)':e.weight,'Time':e.time}));
+  const rows = all.map((e,i)=>({'#':i+1,'Customer':e.customer,'Tracking Number':e.tracking,'Weight (kg)':e.weight,'Mode':e.mode||'Surface','Time':e.time}));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, dateStr);
